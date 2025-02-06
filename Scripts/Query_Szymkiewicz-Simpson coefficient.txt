@@ -1,0 +1,59 @@
+# Returns spectral features organized by decreasing SSC similarity 
+# on a list of selected features sharing common peaks and losses.
+# Adapt input spectra and top N
+# Retrieve SiriusCanopusAnnotation
+
+PREFIX enpkg: <https://enpkg.commons-lab.org/kg/>
+PREFIX enpkgmodule: <https://enpkg.commons-lab.org/module/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+
+SELECT ?feature ?doc (SAMPLE(?rt) AS ?rt) (SAMPLE(?parent_mass) AS ?parent_mass) 
+       ?count_inter ?count_loss ?count_peak ((?count_peak + ?count_loss) AS ?total_peak) 
+       ((?count_inter / IF(?count_loss + ?count_peak < COUNT(?target_peakloss_original), ?count_loss + ?count_peak, COUNT(?target_peakloss_original))) AS ?szymkiewicz_simpson) 
+       (SAMPLE(?sirius_canopus_annotation) AS ?sirius_canopus_annotation)
+WHERE {
+    
+    ?feature rdf:type enpkg:LCMSFeature .
+    ?feature enpkg:has_spec2vec_doc ?doc .
+    ?feature enpkg:has_parent_mass ?parent_mass .
+    ?feature enpkg:has_retention_time ?rt .
+    ?doc_target enpkg:has_spec2vec_loss|enpkg:has_spec2vec_peak ?target_peakloss_original .
+
+    {
+        SELECT ?doc (COUNT(?feature_peak) AS ?count_peak)
+        WHERE {
+            ?doc enpkg:has_spec2vec_peak ?feature_peak 
+        }
+        GROUP BY ?doc
+    }
+    {
+        SELECT ?doc (COUNT(?feature_loss) AS ?count_loss) 
+        WHERE {
+            ?doc enpkg:has_spec2vec_loss ?feature_loss .
+        }
+        GROUP BY ?doc
+    }
+    
+    {
+        SELECT ?doc ?doc_target (COUNT(?target_peakloss) AS ?count_inter)
+        WHERE {
+            ?doc enpkg:has_spec2vec_loss|enpkg:has_spec2vec_peak ?target_peakloss .
+            
+            {
+                SELECT * 
+                WHERE {
+                    ?feature_target rdf:type enpkg:LCMSFeature
+                    FILTER(regex(str(?feature_target), "https://enpkg.commons-lab.org/kg/lcms_feature_mzspec:MSV000087728:VGF143_G10_features_ms2_pos.mgf:scan:3$")) # Target compound spectra
+                    ?feature_target enpkg:has_spec2vec_doc ?doc_target .
+                    ?doc_target enpkg:has_spec2vec_loss|enpkg:has_spec2vec_peak ?target_peakloss .
+                }
+            }
+        }
+        GROUP BY ?doc ?doc_target
+        ORDER BY DESC(?count_inter)
+        LIMIT 1000
+    }
+}
+GROUP BY ?feature ?doc ?doc_target ?count_inter ?count_loss ?count_peak
+ORDER BY DESC(?szymkiewicz_simpson)
